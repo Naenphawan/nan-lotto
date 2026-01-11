@@ -1,26 +1,15 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import {
-  collection,
-  addDoc,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  query,
-  where,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 
 type RecordItem = {
-  id: string;
+  id: number;
   number: string;
   type: string;
   base: number;
   mul: number;
   calc: string;
   amount: number;
-  date: string;
 };
 
 function calculateAmount(base: number, mul: number) {
@@ -29,32 +18,8 @@ function calculateAmount(base: number, mul: number) {
 }
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-/* ===== EXPORT ===== */
-function exportCSV(rows: any[], filename: string) {
-  if (rows.length === 0) {
-    alert('ไม่มีข้อมูลให้ export');
-    return;
-  }
-
-  const headers = Object.keys(rows[0]);
-  const csv = [
-    headers.join(','),
-    ...rows.map((r) =>
-      headers.map((h) => `"${r[h] ?? ''}"`).join(',')
-    ),
-  ].join('\n');
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  const d = new Date();
+  return `lotto-records-${d.toISOString().slice(0, 10)}`;
 }
 
 export default function Page() {
@@ -64,6 +29,8 @@ export default function Page() {
   const [mul, setMul] = useState('');
   const [type, setType] = useState('3 ตัวตรง');
   const [types] = useState(['3 ตัวตรง', '3 ตัวโต๊ด', 'บน', 'ล่าง']);
+  const [editId, setEditId] = useState<number | null>(null);
+
   const numberRef = useRef<HTMLInputElement>(null);
 
   const baseNum = Number(base || 0);
@@ -71,70 +38,85 @@ export default function Page() {
   const amount = calculateAmount(baseNum, mulNum);
   const calcText = mul ? `${baseNum}*${mulNum}` : `${baseNum}`;
 
-  /* ===== LOAD + SYNC ===== */
+  /* load */
   useEffect(() => {
-    const q = query(
-      collection(db, 'records'),
-      where('date', '==', todayKey())
-    );
-
-    const unsub = onSnapshot(q, (snap) => {
-      const rows = snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<RecordItem, 'id'>),
-      }));
-      setRecords(rows);
-    });
-
+    const raw = localStorage.getItem(todayKey());
+    if (raw) setRecords(JSON.parse(raw));
     numberRef.current?.focus();
-    return () => unsub();
   }, []);
 
-  async function saveRecord() {
-    if (!number || baseNum <= 0) return;
+  /* autosave */
+  useEffect(() => {
+    localStorage.setItem(todayKey(), JSON.stringify(records));
+  }, [records]);
 
-    await addDoc(collection(db, 'records'), {
-      number,
-      type,
-      base: baseNum,
-      mul: mulNum,
-      calc: calcText,
-      amount,
-      date: todayKey(),
-    });
-
+  function resetInput() {
     setNumber('');
     setBase('');
     setMul('');
+    setEditId(null);
     numberRef.current?.focus();
   }
 
-  async function deleteGroup(num: string, t: string) {
-    const ok = confirm(`ลบเลข ${num} (${t}) ทั้งหมด ใช่หรือไม่`);
-    if (!ok) return;
+  function saveRecord() {
+    if (!number || baseNum <= 0) return;
 
-    const targets = records.filter(
-      (r) => r.number === num && r.type === t
-    );
+    if (editId) {
+      setRecords((prev) =>
+        prev.map((r) =>
+          r.id === editId
+            ? { ...r, number, type, base: baseNum, mul: mulNum, calc: calcText, amount }
+            : r
+        )
+      );
+    } else {
+      setRecords((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          number,
+          type,
+          base: baseNum,
+          mul: mulNum,
+          calc: calcText,
+          amount,
+        },
+      ]);
+    }
+    resetInput();
+  }
 
-    for (const r of targets) {
-      await deleteDoc(doc(db, 'records', r.id));
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveRecord();
     }
   }
 
-  /* ===== SUMMARY ===== */
-  const summary = records.reduce<Record<string, any>>((acc, r) => {
-    const key = `${r.number}-${r.type}`;
-    if (!acc[key])
-      acc[key] = {
-        number: r.number,
-        type: r.type,
-        base: 0,
-        mul: 0,
-        amount: 0,
-        calcs: [],
-      };
+  function editRecord(r: RecordItem) {
+    setEditId(r.id);
+    setNumber(r.number);
+    setType(r.type);
+    setBase(String(r.base));
+    setMul(String(r.mul));
+    numberRef.current?.focus();
+  }
 
+  function deleteGroup(num: string, t: string) {
+    const ok = confirm(`ลบเลข ${num} (${t}) ทั้งหมด ใช่หรือไม่?`);
+    if (!ok) return;
+
+    setRecords((prev) =>
+      prev.filter((r) => !(r.number === num && r.type === t))
+    );
+  }
+
+  /* summary */
+  const summary = records.reduce<
+    Record<string, { base: number; mul: number; amount: number; calcs: string[] }>
+  >((acc, r) => {
+    const key = `${r.number}-${r.type}`;
+    if (!acc[key]) acc[key] = { base: 0, mul: 0, amount: 0, calcs: [] };
     acc[key].base += r.base;
     acc[key].mul += r.mul;
     acc[key].amount += r.amount;
@@ -142,8 +124,45 @@ export default function Page() {
     return acc;
   }, {});
 
-  const rows = Object.values(summary);
-  const over100 = rows.filter((r: any) => r.base >= 100);
+  /* export */
+  function exportCSV(filename: string, rows: any[]) {
+    const bom = '\uFEFF';
+    const csv =
+      bom +
+      Object.keys(rows[0]).join(',') +
+      '\n' +
+      rows.map((r) => Object.values(r).join(',')).join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+  }
+
+  function exportAll() {
+    if (!records.length) return;
+    exportCSV('ยอดขายทั้งหมดวันนี้.csv', records);
+  }
+
+  function exportDuplicate() {
+    const rows = Object.entries(summary)
+      .filter(([, v]) => v.base >= 100)
+      .map(([k, v]) => {
+        const [number, type] = k.split('-');
+        return {
+          number,
+          type,
+          base_total: v.base,
+          tod_total: v.mul,
+          total: v.amount,
+          detail: v.calcs.join(' | '),
+        };
+      });
+    if (rows.length) exportCSV('เลขเกิน100.csv', rows);
+  }
+
   const totalSales = records.reduce((s, r) => s + r.amount, 0);
 
   return (
@@ -152,8 +171,11 @@ export default function Page() {
 
         <h1 className="text-2xl font-bold text-center">🎯 ระบบขายหวย</h1>
 
-        {/* INPUT */}
-        <div className="bg-white p-4 rounded-xl grid grid-cols-5 gap-2">
+        {/* input */}
+        <div
+          className="bg-white p-4 rounded-xl grid grid-cols-5 gap-2"
+          onKeyDown={handleKeyDown}
+        >
           <input
             ref={numberRef}
             className="border rounded px-2 py-1 text-center"
@@ -186,68 +208,97 @@ export default function Page() {
             onClick={saveRecord}
             className="bg-blue-600 text-white rounded"
           >
-            บันทึก
+            {editId ? 'บันทึกแก้ไข' : 'บันทึก'}
           </button>
         </div>
 
-        {/* EXPORT */}
-        <div className="flex gap-2">
-          <button
-            onClick={() => exportCSV(rows, 'lotto_all.csv')}
-            className="bg-green-600 text-white px-4 py-2 rounded"
-          >
-            Export ทั้งหมด
-          </button>
-          <button
-            onClick={() => exportCSV(over100, 'lotto_over_100.csv')}
-            className="bg-red-600 text-white px-4 py-2 rounded"
-          >
-            Export เลขเกิน 100
-          </button>
-        </div>
-
-        {/* TABLE */}
-        <div className="bg-white rounded-xl p-4 overflow-auto">
-          <table className="w-full border text-sm">
-            <thead className="bg-slate-200">
+        {/* table */}
+        <div className="bg-white p-4 rounded-xl overflow-x-auto">
+          <table className="w-full text-sm table-fixed">
+            <thead className="border-b">
               <tr>
-                <th className="border">เลข</th>
-                <th className="border">ประเภท</th>
-                <th className="border">เลขหลัก</th>
-                <th className="border">โต๊ด</th>
-                <th className="border">รวมเงิน</th>
-                <th className="border">คำนวณ</th>
-                <th className="border">ลบ</th>
+                <th className="w-16 text-center">เลข</th>
+                <th className="w-24 text-center">ประเภท</th>
+                <th className="text-left">รายการ</th>
+                <th className="w-24 text-right">เลขหลัก</th>
+                <th className="w-24 text-right">ตัวโต๊ด</th>
+                <th className="w-24 text-right">ยอดรวม</th>
+                <th className="w-20 text-center">จัดการ</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r: any) => (
-                <tr key={`${r.number}-${r.type}`} className="text-center">
-                  <td className="border">{r.number}</td>
-                  <td className="border">{r.type}</td>
-                  <td className="border">{r.base}</td>
-                  <td className="border">{r.mul}</td>
-                  <td className="border font-bold">{r.amount}</td>
-                  <td className="border text-xs">{r.calcs.join(', ')}</td>
-                  <td className="border">
-                    <button
-                      onClick={() => deleteGroup(r.number, r.type)}
-                      className="text-red-600"
-                    >
-                      ลบ
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {Object.entries(summary).map(([k, v]) => {
+                const [num, t] = k.split('-');
+                return (
+                  <tr
+                    key={k}
+                    className={
+                      v.base >= 100
+                        ? 'bg-red-100'
+                        : v.base >= 80
+                        ? 'bg-yellow-100'
+                        : ''
+                    }
+                  >
+                    <td className="text-center">{num}</td>
+                    <td className="text-center">{t}</td>
+                    <td className="text-left text-xs">
+                      {v.calcs.join(', ')}
+                    </td>
+                    <td className="text-right">{v.base}</td>
+                    <td className="text-right">{v.mul}</td>
+                    <td className="text-right font-bold">{v.amount}</td>
+                    <td className="text-center space-x-1">
+                      <button
+                        onClick={() =>
+                          editRecord(
+                            records.find(
+                              (r) => r.number === num && r.type === t
+                            )!
+                          )
+                        }
+                        className="text-blue-600 underline text-xs"
+                      >
+                        แก้ไข
+                      </button>
+                      <button
+                        onClick={() => deleteGroup(num, t)}
+                        className="text-red-600 underline text-xs"
+                      >
+                        ลบ
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
 
-        <div className="text-xl font-bold text-right">
-          💵 รวมทั้งหมด {totalSales} บาท
+        {/* footer */}
+        <div className="flex justify-between items-center">
+          <div className="flex gap-2">
+            <button
+              onClick={exportAll}
+              className="bg-green-600 text-white px-4 py-2 rounded"
+            >
+              Export ทั้งหมด
+            </button>
+            <button
+              onClick={exportDuplicate}
+              className="bg-red-600 text-white px-4 py-2 rounded"
+            >
+              Export เลขเกิน 100
+            </button>
+          </div>
+          <div className="text-xl font-bold">
+            💵 รวมทั้งหมด {totalSales} บาท
+          </div>
         </div>
 
       </div>
     </div>
   );
 }
+
+
