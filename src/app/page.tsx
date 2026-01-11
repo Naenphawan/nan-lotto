@@ -135,6 +135,66 @@ export default function Page() {
 
   const totalSales = records.reduce((s, r) => s + r.amount, 0);
 
+  /* ================= EXPORT ================= */
+
+  function exportCSV(filename: string, rows: any[]) {
+    if (!rows.length) {
+      alert('ไม่มีข้อมูลให้ Export');
+      return;
+    }
+
+    const bom = '\uFEFF';
+    const headers = Object.keys(rows[0]);
+
+    const csv =
+      bom +
+      headers.join(',') +
+      '\n' +
+      rows
+        .map((r) =>
+          headers
+            .map((h) =>
+              `"${String(r[h] ?? '').replace(/"/g, '""')}"`
+            )
+            .join(',')
+        )
+        .join('\n');
+
+    const blob = new Blob([csv], {
+      type: 'text/csv;charset=utf-8;',
+    });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  function exportAll() {
+    exportCSV('ยอดขายทั้งหมดวันนี้.csv', records);
+  }
+
+  function exportOver100() {
+    const rows = Object.entries(summary)
+      .filter(([, v]) => v.base >= 100)
+      .map(([k, v]) => {
+        const [number, type] = k.split('-');
+        return {
+          number,
+          type,
+          base_total: v.base,
+          tod_total: v.mul,
+          total: v.amount,
+          detail: v.calcs.join(' | '),
+        };
+      });
+
+    exportCSV('เลขเกิน100.csv', rows);
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 p-4">
       <div className="max-w-6xl mx-auto space-y-4">
@@ -178,80 +238,23 @@ export default function Page() {
             onClick={saveRecord}
             className="bg-blue-600 text-white rounded"
           >
-            {editId ? 'บันทึกแก้ไข' : 'บันทึก'}
+            บันทึก
           </button>
-        </div>
-
-        {/* table */}
-        <div className="bg-white p-4 rounded-xl overflow-x-auto">
-          <table className="w-full text-sm table-fixed">
-            <thead className="border-b">
-              <tr>
-                <th className="w-16 text-center">เลข</th>
-                <th className="w-24 text-center">ประเภท</th>
-                <th className="text-left">รายการ</th>
-                <th className="w-24 text-right">เลขหลัก</th>
-                <th className="w-24 text-right">ตัวโต๊ด</th>
-                <th className="w-24 text-right">ยอดรวม</th>
-                <th className="w-20 text-center">จัดการ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(summary).map(([k, v]) => {
-                const [num, t] = k.split('-');
-                return (
-                  <tr
-                    key={k}
-                    className={
-                      v.base >= 100
-                        ? 'bg-red-100'
-                        : v.base >= 80
-                        ? 'bg-yellow-100'
-                        : ''
-                    }
-                  >
-                    <td className="text-center">{num}</td>
-                    <td className="text-center">{t}</td>
-                    <td className="text-left text-xs">
-                      {v.calcs.join(', ')}
-                    </td>
-                    <td className="text-right">{v.base}</td>
-                    <td className="text-right">{v.mul}</td>
-                    <td className="text-right font-bold">{v.amount}</td>
-                    <td className="text-center space-x-1">
-                      <button
-                        onClick={() =>
-                          editRecord(
-                            records.find(
-                              (r) => r.number === num && r.type === t
-                            )!
-                          )
-                        }
-                        className="text-blue-600 underline text-xs"
-                      >
-                        แก้ไข
-                      </button>
-                      <button
-                        onClick={() => deleteGroup(num, t)}
-                        className="text-red-600 underline text-xs"
-                      >
-                        ลบ
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
         </div>
 
         {/* footer */}
         <div className="flex justify-between items-center">
           <div className="flex gap-2">
-            <button className="bg-green-600 text-white px-4 py-2 rounded">
+            <button
+              onClick={exportAll}
+              className="bg-green-600 text-white px-4 py-2 rounded"
+            >
               Export ทั้งหมด
             </button>
-            <button className="bg-red-600 text-white px-4 py-2 rounded">
+            <button
+              onClick={exportOver100}
+              className="bg-red-600 text-white px-4 py-2 rounded"
+            >
               Export เลขเกิน 100
             </button>
           </div>
