@@ -32,6 +32,31 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/* ===== EXPORT ===== */
+function exportCSV(rows: any[], filename: string) {
+  if (rows.length === 0) {
+    alert('ไม่มีข้อมูลให้ export');
+    return;
+  }
+
+  const headers = Object.keys(rows[0]);
+  const csv = [
+    headers.join(','),
+    ...rows.map((r) =>
+      headers.map((h) => `"${r[h] ?? ''}"`).join(',')
+    ),
+  ].join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function Page() {
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [number, setNumber] = useState('');
@@ -39,8 +64,6 @@ export default function Page() {
   const [mul, setMul] = useState('');
   const [type, setType] = useState('3 ตัวตรง');
   const [types] = useState(['3 ตัวตรง', '3 ตัวโต๊ด', 'บน', 'ล่าง']);
-  const [editId, setEditId] = useState<string | null>(null);
-
   const numberRef = useRef<HTMLInputElement>(null);
 
   const baseNum = Number(base || 0);
@@ -48,7 +71,7 @@ export default function Page() {
   const amount = calculateAmount(baseNum, mulNum);
   const calcText = mul ? `${baseNum}*${mulNum}` : `${baseNum}`;
 
-  /* 🔥 LOAD + SYNC REALTIME */
+  /* ===== LOAD + SYNC ===== */
   useEffect(() => {
     const q = query(
       collection(db, 'records'),
@@ -67,14 +90,6 @@ export default function Page() {
     return () => unsub();
   }, []);
 
-  function resetInput() {
-    setNumber('');
-    setBase('');
-    setMul('');
-    setEditId(null);
-    numberRef.current?.focus();
-  }
-
   async function saveRecord() {
     if (!number || baseNum <= 0) return;
 
@@ -88,27 +103,14 @@ export default function Page() {
       date: todayKey(),
     });
 
-    resetInput();
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveRecord();
-    }
-  }
-
-  function editRecord(r: RecordItem) {
-    setEditId(r.id);
-    setNumber(r.number);
-    setType(r.type);
-    setBase(String(r.base));
-    setMul(String(r.mul));
+    setNumber('');
+    setBase('');
+    setMul('');
     numberRef.current?.focus();
   }
 
   async function deleteGroup(num: string, t: string) {
-    const ok = confirm(`ลบเลข ${num} (${t}) ทั้งหมด ใช่หรือไม่?`);
+    const ok = confirm(`ลบเลข ${num} (${t}) ทั้งหมด ใช่หรือไม่`);
     if (!ok) return;
 
     const targets = records.filter(
@@ -120,12 +122,19 @@ export default function Page() {
     }
   }
 
-  /* summary */
-  const summary = records.reduce<
-    Record<string, { base: number; mul: number; amount: number; calcs: string[] }>
-  >((acc, r) => {
+  /* ===== SUMMARY ===== */
+  const summary = records.reduce<Record<string, any>>((acc, r) => {
     const key = `${r.number}-${r.type}`;
-    if (!acc[key]) acc[key] = { base: 0, mul: 0, amount: 0, calcs: [] };
+    if (!acc[key])
+      acc[key] = {
+        number: r.number,
+        type: r.type,
+        base: 0,
+        mul: 0,
+        amount: 0,
+        calcs: [],
+      };
+
     acc[key].base += r.base;
     acc[key].mul += r.mul;
     acc[key].amount += r.amount;
@@ -133,117 +142,9 @@ export default function Page() {
     return acc;
   }, {});
 
+  const rows = Object.values(summary);
+  const over100 = rows.filter((r: any) => r.base >= 100);
   const totalSales = records.reduce((s, r) => s + r.amount, 0);
-
-  {/* ตารางสรุป */}
-<div className="bg-white rounded-xl p-4 overflow-auto">
-  <table className="w-full border text-sm">
-    <thead className="bg-slate-200">
-      <tr>
-        <th className="border px-2 py-1">เลข</th>
-        <th className="border px-2 py-1">ประเภท</th>
-        <th className="border px-2 py-1">เลขหลัก</th>
-        <th className="border px-2 py-1">โต๊ด</th>
-        <th className="border px-2 py-1">รวมเงิน</th>
-        <th className="border px-2 py-1">การคำนวณ</th>
-        <th className="border px-2 py-1">จัดการ</th>
-      </tr>
-    </thead>
-    <tbody>
-      {Object.entries(summary).map(([key, v]) => {
-        const [num, t] = key.split('-');
-        return (
-          <tr key={key} className="text-center">
-            <td className="border px-2 py-1">{num}</td>
-            <td className="border px-2 py-1">{t}</td>
-            <td className="border px-2 py-1">{v.base}</td>
-            <td className="border px-2 py-1">{v.mul}</td>
-            <td className="border px-2 py-1 font-bold">{v.amount}</td>
-            <td className="border px-2 py-1 text-left text-xs">
-              {v.calcs.join(', ')}
-            </td>
-            <td className="border px-2 py-1 space-x-2">
-              <button
-                onClick={() => editRecord(
-                  records.find(r => r.number === num && r.type === t)!
-                )}
-                className="text-blue-600"
-              >
-                แก้
-              </button>
-              <button
-                onClick={() => deleteGroup(num, t)}
-                className="text-red-600"
-              >
-                ลบ
-              </button>
-            </td>
-          </tr>
-        );
-      })}
-    </tbody>
-  </table>
-</div>
-
-  /* ================= EXPORT ================= */
-
-  function exportCSV(filename: string, rows: any[]) {
-    if (!rows.length) {
-      alert('ไม่มีข้อมูลให้ Export');
-      return;
-    }
-
-    const bom = '\uFEFF';
-    const headers = Object.keys(rows[0]);
-
-    const csv =
-      bom +
-      headers.join(',') +
-      '\n' +
-      rows
-        .map((r) =>
-          headers
-            .map((h) =>
-              `"${String(r[h] ?? '').replace(/"/g, '""')}"`
-            )
-            .join(',')
-        )
-        .join('\n');
-
-    const blob = new Blob([csv], {
-      type: 'text/csv;charset=utf-8;',
-    });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-
-    URL.revokeObjectURL(url);
-  }
-
-  function exportAll() {
-    exportCSV('ยอดขายทั้งหมดวันนี้.csv', records);
-  }
-
-  function exportOver100() {
-    const rows = Object.entries(summary)
-      .filter(([, v]) => v.base >= 100)
-      .map(([k, v]) => {
-        const [number, type] = k.split('-');
-        return {
-          number,
-          type,
-          base_total: v.base,
-          tod_total: v.mul,
-          total: v.amount,
-          detail: v.calcs.join(' | '),
-        };
-      });
-
-    exportCSV('เลขเกิน100.csv', rows);
-  }
 
   return (
     <div className="min-h-screen bg-slate-100 p-4">
@@ -251,11 +152,8 @@ export default function Page() {
 
         <h1 className="text-2xl font-bold text-center">🎯 ระบบขายหวย</h1>
 
-        {/* input */}
-        <div
-          className="bg-white p-4 rounded-xl grid grid-cols-5 gap-2"
-          onKeyDown={handleKeyDown}
-        >
+        {/* INPUT */}
+        <div className="bg-white p-4 rounded-xl grid grid-cols-5 gap-2">
           <input
             ref={numberRef}
             className="border rounded px-2 py-1 text-center"
@@ -292,25 +190,61 @@ export default function Page() {
           </button>
         </div>
 
-        {/* footer */}
-        <div className="flex justify-between items-center">
-          <div className="flex gap-2">
-            <button
-              onClick={exportAll}
-              className="bg-green-600 text-white px-4 py-2 rounded"
-            >
-              Export ทั้งหมด
-            </button>
-            <button
-              onClick={exportOver100}
-              className="bg-red-600 text-white px-4 py-2 rounded"
-            >
-              Export เลขเกิน 100
-            </button>
-          </div>
-          <div className="text-xl font-bold">
-            💵 รวมทั้งหมด {totalSales} บาท
-          </div>
+        {/* EXPORT */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => exportCSV(rows, 'lotto_all.csv')}
+            className="bg-green-600 text-white px-4 py-2 rounded"
+          >
+            Export ทั้งหมด
+          </button>
+          <button
+            onClick={() => exportCSV(over100, 'lotto_over_100.csv')}
+            className="bg-red-600 text-white px-4 py-2 rounded"
+          >
+            Export เลขเกิน 100
+          </button>
+        </div>
+
+        {/* TABLE */}
+        <div className="bg-white rounded-xl p-4 overflow-auto">
+          <table className="w-full border text-sm">
+            <thead className="bg-slate-200">
+              <tr>
+                <th className="border">เลข</th>
+                <th className="border">ประเภท</th>
+                <th className="border">เลขหลัก</th>
+                <th className="border">โต๊ด</th>
+                <th className="border">รวมเงิน</th>
+                <th className="border">คำนวณ</th>
+                <th className="border">ลบ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r: any) => (
+                <tr key={`${r.number}-${r.type}`} className="text-center">
+                  <td className="border">{r.number}</td>
+                  <td className="border">{r.type}</td>
+                  <td className="border">{r.base}</td>
+                  <td className="border">{r.mul}</td>
+                  <td className="border font-bold">{r.amount}</td>
+                  <td className="border text-xs">{r.calcs.join(', ')}</td>
+                  <td className="border">
+                    <button
+                      onClick={() => deleteGroup(r.number, r.type)}
+                      className="text-red-600"
+                    >
+                      ลบ
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="text-xl font-bold text-right">
+          💵 รวมทั้งหมด {totalSales} บาท
         </div>
 
       </div>
