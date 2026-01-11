@@ -158,6 +158,20 @@ export default function Page() {
   }, {});
 
   const totalSales = records.reduce((s, r) => s + r.amount, 0);
+  const exportRows = Object.entries(summary).map(([k, v]) => {
+    const [number, type] = k.split('-');
+    return {
+      number,
+      type,
+      base: v.base,
+      mul: v.mul,
+      amount: v.amount,
+      calcs: v.calcs.join(' | '),
+    };
+  });
+  
+  const exportOver100 = exportRows.filter((r) => r.base >= 100);
+  
 
   return (
     <div className="min-h-screen bg-slate-100 p-4">
@@ -270,6 +284,21 @@ export default function Page() {
         </div>
 
         {/* footer */}
+        <div className="flex gap-2">
+  <button
+    onClick={() => exportCSV(exportRows, 'lotto_all.csv')}
+    className="bg-green-600 text-white px-4 py-2 rounded"
+  >
+    Export ทั้งหมด
+  </button>
+
+  <button
+    onClick={() => exportCSV(exportOver100, 'lotto_over_100.csv')}
+    className="bg-red-600 text-white px-4 py-2 rounded"
+  >
+    Export เลขเกิน 100
+  </button>
+</div>
         <div className="flex justify-between items-center">
           <div className="flex gap-2">
             <button className="bg-green-600 text-white px-4 py-2 rounded">
