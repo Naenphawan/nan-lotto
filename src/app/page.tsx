@@ -31,6 +31,30 @@ function calculateAmount(base: number, mul: number) {
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
+/* ===== EXPORT ===== */
+function exportCSV(rows: any[], filename: string) {
+  if (rows.length === 0) {
+    alert('ไม่มีข้อมูลให้ export');
+    return;
+  }
+
+  const headers = Object.keys(rows[0]);
+  const csv = [
+    headers.join(','),
+    ...rows.map((r) =>
+      headers.map((h) => `"${r[h] ?? ''}"`).join(',')
+    ),
+  ].join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function Page() {
   const [records, setRecords] = useState<RecordItem[]>([]);
