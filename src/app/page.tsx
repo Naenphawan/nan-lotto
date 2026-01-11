@@ -300,14 +300,6 @@ export default function Page() {
   </button>
 </div>
         <div className="flex justify-between items-center">
-          <div className="flex gap-2">
-            <button className="bg-green-600 text-white px-4 py-2 rounded">
-              Export ทั้งหมด
-            </button>
-            <button className="bg-red-600 text-white px-4 py-2 rounded">
-              Export เลขเกิน 100
-            </button>
-          </div>
           <div className="text-xl font-bold">
             💵 รวมทั้งหมด {totalSales} บาท
           </div>
