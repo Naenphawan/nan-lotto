@@ -1,15 +1,26 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import {
+  collection,
+  addDoc,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  query,
+  where,
+} from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 type RecordItem = {
-  id: number;
+  id: string;
   number: string;
   type: string;
   base: number;
   mul: number;
   calc: string;
   amount: number;
+  date: string;
 };
 
 function calculateAmount(base: number, mul: number) {
@@ -18,8 +29,7 @@ function calculateAmount(base: number, mul: number) {
 }
 
 function todayKey() {
-  const d = new Date();
-  return `lotto-records-${d.toISOString().slice(0, 10)}`;
+  return new Date().toISOString().slice(0, 10);
 }
 
 export default function Page() {
@@ -29,7 +39,7 @@ export default function Page() {
   const [mul, setMul] = useState('');
   const [type, setType] = useState('3 ตัวตรง');
   const [types] = useState(['3 ตัวตรง', '3 ตัวโต๊ด', 'บน', 'ล่าง']);
-  const [editId, setEditId] = useState<number | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
 
   const numberRef = useRef<HTMLInputElement>(null);
 
@@ -38,17 +48,24 @@ export default function Page() {
   const amount = calculateAmount(baseNum, mulNum);
   const calcText = mul ? `${baseNum}*${mulNum}` : `${baseNum}`;
 
-  /* load */
+  /* 🔥 LOAD + SYNC REALTIME */
   useEffect(() => {
-    const raw = localStorage.getItem(todayKey());
-    if (raw) setRecords(JSON.parse(raw));
-    numberRef.current?.focus();
-  }, []);
+    const q = query(
+      collection(db, 'records'),
+      where('date', '==', todayKey())
+    );
 
-  /* autosave */
-  useEffect(() => {
-    localStorage.setItem(todayKey(), JSON.stringify(records));
-  }, [records]);
+    const unsub = onSnapshot(q, (snap) => {
+      const rows = snap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<RecordItem, 'id'>),
+      }));
+      setRecords(rows);
+    });
+
+    numberRef.current?.focus();
+    return () => unsub();
+  }, []);
 
   function resetInput() {
     setNumber('');
@@ -58,31 +75,19 @@ export default function Page() {
     numberRef.current?.focus();
   }
 
-  function saveRecord() {
+  async function saveRecord() {
     if (!number || baseNum <= 0) return;
 
-    if (editId) {
-      setRecords((prev) =>
-        prev.map((r) =>
-          r.id === editId
-            ? { ...r, number, type, base: baseNum, mul: mulNum, calc: calcText, amount }
-            : r
-        )
-      );
-    } else {
-      setRecords((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          number,
-          type,
-          base: baseNum,
-          mul: mulNum,
-          calc: calcText,
-          amount,
-        },
-      ]);
-    }
+    await addDoc(collection(db, 'records'), {
+      number,
+      type,
+      base: baseNum,
+      mul: mulNum,
+      calc: calcText,
+      amount,
+      date: todayKey(),
+    });
+
     resetInput();
   }
 
@@ -102,13 +107,17 @@ export default function Page() {
     numberRef.current?.focus();
   }
 
-  function deleteGroup(num: string, t: string) {
+  async function deleteGroup(num: string, t: string) {
     const ok = confirm(`ลบเลข ${num} (${t}) ทั้งหมด ใช่หรือไม่?`);
     if (!ok) return;
 
-    setRecords((prev) =>
-      prev.filter((r) => !(r.number === num && r.type === t))
+    const targets = records.filter(
+      (r) => r.number === num && r.type === t
     );
+
+    for (const r of targets) {
+      await deleteDoc(doc(db, 'records', r.id));
+    }
   }
 
   /* summary */
@@ -123,45 +132,6 @@ export default function Page() {
     acc[key].calcs.push(r.calc);
     return acc;
   }, {});
-
-  /* export */
-  function exportCSV(filename: string, rows: any[]) {
-    const bom = '\uFEFF';
-    const csv =
-      bom +
-      Object.keys(rows[0]).join(',') +
-      '\n' +
-      rows.map((r) => Object.values(r).join(',')).join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-  }
-
-  function exportAll() {
-    if (!records.length) return;
-    exportCSV('ยอดขายทั้งหมดวันนี้.csv', records);
-  }
-
-  function exportDuplicate() {
-    const rows = Object.entries(summary)
-      .filter(([, v]) => v.base >= 100)
-      .map(([k, v]) => {
-        const [number, type] = k.split('-');
-        return {
-          number,
-          type,
-          base_total: v.base,
-          tod_total: v.mul,
-          total: v.amount,
-          detail: v.calcs.join(' | '),
-        };
-      });
-    if (rows.length) exportCSV('เลขเกิน100.csv', rows);
-  }
 
   const totalSales = records.reduce((s, r) => s + r.amount, 0);
 
@@ -278,16 +248,10 @@ export default function Page() {
         {/* footer */}
         <div className="flex justify-between items-center">
           <div className="flex gap-2">
-            <button
-              onClick={exportAll}
-              className="bg-green-600 text-white px-4 py-2 rounded"
-            >
+            <button className="bg-green-600 text-white px-4 py-2 rounded">
               Export ทั้งหมด
             </button>
-            <button
-              onClick={exportDuplicate}
-              className="bg-red-600 text-white px-4 py-2 rounded"
-            >
+            <button className="bg-red-600 text-white px-4 py-2 rounded">
               Export เลขเกิน 100
             </button>
           </div>
@@ -300,5 +264,3 @@ export default function Page() {
     </div>
   );
 }
-
-
