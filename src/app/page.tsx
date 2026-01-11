@@ -64,7 +64,6 @@ function exportCSV(rows: any[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
-
 export default function Page() {
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [number, setNumber] = useState('');
