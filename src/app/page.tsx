@@ -135,6 +135,56 @@ export default function Page() {
 
   const totalSales = records.reduce((s, r) => s + r.amount, 0);
 
+  {/* ตารางสรุป */}
+<div className="bg-white rounded-xl p-4 overflow-auto">
+  <table className="w-full border text-sm">
+    <thead className="bg-slate-200">
+      <tr>
+        <th className="border px-2 py-1">เลข</th>
+        <th className="border px-2 py-1">ประเภท</th>
+        <th className="border px-2 py-1">เลขหลัก</th>
+        <th className="border px-2 py-1">โต๊ด</th>
+        <th className="border px-2 py-1">รวมเงิน</th>
+        <th className="border px-2 py-1">การคำนวณ</th>
+        <th className="border px-2 py-1">จัดการ</th>
+      </tr>
+    </thead>
+    <tbody>
+      {Object.entries(summary).map(([key, v]) => {
+        const [num, t] = key.split('-');
+        return (
+          <tr key={key} className="text-center">
+            <td className="border px-2 py-1">{num}</td>
+            <td className="border px-2 py-1">{t}</td>
+            <td className="border px-2 py-1">{v.base}</td>
+            <td className="border px-2 py-1">{v.mul}</td>
+            <td className="border px-2 py-1 font-bold">{v.amount}</td>
+            <td className="border px-2 py-1 text-left text-xs">
+              {v.calcs.join(', ')}
+            </td>
+            <td className="border px-2 py-1 space-x-2">
+              <button
+                onClick={() => editRecord(
+                  records.find(r => r.number === num && r.type === t)!
+                )}
+                className="text-blue-600"
+              >
+                แก้
+              </button>
+              <button
+                onClick={() => deleteGroup(num, t)}
+                className="text-red-600"
+              >
+                ลบ
+              </button>
+            </td>
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+</div>
+
   /* ================= EXPORT ================= */
 
   function exportCSV(filename: string, rows: any[]) {
